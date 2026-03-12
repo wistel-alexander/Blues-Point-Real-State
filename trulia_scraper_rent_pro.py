@@ -1,4 +1,5 @@
 import undetected_chromedriver as uc
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -23,7 +24,7 @@ cities = [
 
 BASE_URL = "https://www.trulia.com/for_rent/{}/3000p_price/"
 
-OUTPUT_FILE = "trulia_rent_data.csv"
+OUTPUT_FILE = "trulia_rent_data_pro.csv"
 
 
 # =====================================
@@ -32,17 +33,16 @@ OUTPUT_FILE = "trulia_rent_data.csv"
 
 def start_driver():
 
-    print("\nStarting undetected Chrome driver...\n")
+    print("\nStarting Undetected Chrome...\n")
 
     options = uc.ChromeOptions()
 
+    options.add_argument("--start-maximized")
+    options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-blink-features=AutomationControlled")
 
     driver = uc.Chrome(options=options, version_main=145)
-
-    driver.set_window_size(1400,900)
 
     driver.execute_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
@@ -59,9 +59,14 @@ def captcha_detected(driver):
 
     page = driver.page_source.lower()
 
-    words = ["captcha","verify you are human","security check","robot"]
+    triggers = [
+        "captcha",
+        "verify you are human",
+        "security check",
+        "robot"
+    ]
 
-    return any(w in page for w in words)
+    return any(t in page for t in triggers)
 
 
 # =====================================
@@ -88,7 +93,7 @@ def safe_find_multiple(driver, selectors):
 
 
 # =====================================
-# COLLECT LINKS
+# GET PROPERTY LINKS
 # =====================================
 
 def collect_links(driver):
@@ -104,7 +109,10 @@ def collect_links(driver):
             link = card.get_attribute("href")
 
             if link and "/home/" in link:
-                links.append(link.split("?")[0])
+
+                link = link.split("?")[0]
+
+                links.append(link)
 
         except:
             pass
@@ -113,22 +121,22 @@ def collect_links(driver):
 
 
 # =====================================
-# MAIN SCRAPER
+# SCRAPER
 # =====================================
 
-def scrape_trulia():
+def scrape():
 
     print("\n==============================")
-    print("TRULIA RENT SCRAPER STARTED")
+    print("TRULIA RENT SCRAPER PRO")
     print("==============================")
 
     driver = start_driver()
 
     wait = WebDriverWait(driver,20)
 
-    all_data = []
-
     visited_links = set()
+
+    all_data = []
 
     property_counter = 0
 
@@ -139,25 +147,24 @@ def scrape_trulia():
         print("CITY:", city)
         print("==============================")
 
-        url = BASE_URL.format(city)
+        driver.get(BASE_URL.format(city))
 
-        driver.get(url)
-
-        time.sleep(6)
+        time.sleep(random.uniform(5,7))
 
         if captcha_detected(driver):
 
-            print("\n⚠ CAPTCHA DETECTED")
-            input("Solve captcha then press ENTER")
+            print("⚠ CAPTCHA detected")
+            input("Solve it then press ENTER")
 
-
-        page = 1
 
         property_links = []
 
-        # =================================
+        page = 1
+
+
+        # =====================================
         # PAGINATION LOOP
-        # =================================
+        # =====================================
 
         while True:
 
@@ -173,7 +180,7 @@ def scrape_trulia():
 
             links = collect_links(driver)
 
-            print("Links found:", len(links))
+            print("Links found:",len(links))
 
             for link in links:
 
@@ -183,10 +190,9 @@ def scrape_trulia():
 
                     property_links.append(link)
 
-                    print("Collected:", link)
+                    print("Collected:",link)
 
 
-            # try next page
             try:
 
                 page += 1
@@ -201,30 +207,30 @@ def scrape_trulia():
                     next_button
                 )
 
-                print("Moving to page", page)
+                print("Moving to page",page)
 
                 time.sleep(random.uniform(6,9))
 
             except:
 
-                print("No more pages")
+                print("No more pages for this city.")
 
                 break
 
 
-        print("Total links collected:", len(property_links))
+        print("\nTotal links collected:",len(property_links))
 
 
-        # =================================
-        # VISIT EACH PROPERTY
-        # =================================
+        # =====================================
+        # OPEN EACH PROPERTY
+        # =====================================
 
         for link in property_links:
 
             property_counter += 1
 
             print("\n--------------------------------")
-            print("PROPERTY:", property_counter)
+            print("PROPERTY:",property_counter)
             print(link)
             print("--------------------------------")
 
@@ -237,21 +243,21 @@ def scrape_trulia():
                 if captcha_detected(driver):
 
                     print("⚠ CAPTCHA detected")
-                    input("Solve captcha then press ENTER")
+                    input("Solve it then press ENTER")
 
 
-                # CHECK PROPERTY OWNER
+                # PROPERTY OWNER CHECK
 
                 try:
 
-                    owner = driver.find_element(
+                    provider = driver.find_element(
                         By.CSS_SELECTOR,
                         "[data-testid='provider-title']"
                     ).text
 
-                    if "Property Owner" not in owner:
+                    if "Property Owner" not in provider:
 
-                        print("Skipped (not property owner)")
+                        print("Skipped (agent listing)")
                         continue
 
                 except:
@@ -301,24 +307,25 @@ def scrape_trulia():
 
                 date_posted = ""
 
-                match = re.search(r"listed on (.*)", description)
+                match = re.search(r"listed on (.*)",description)
 
                 if match:
+
                     date_posted = match.group(1)
 
 
                 row = {
 
-                    "Address": address,
-                    "City": city.split(",")[0],
-                    "URL Link": link,
-                    "Phone Number": phone,
-                    "Email": "",
-                    "Name of Person": "",
-                    "Source": "Trulia",
-                    "Date Posted": date_posted,
-                    "Rental / Buy": "Rent",
-                    "Price Point": price
+                    "Address":address,
+                    "City":city.split(",")[0],
+                    "URL Link":link,
+                    "Phone Number":phone,
+                    "Email":"",
+                    "Name of Person":"",
+                    "Source":"Trulia",
+                    "Date Posted":date_posted,
+                    "Rental / Buy":"Rent",
+                    "Price Point":price
 
                 }
 
@@ -326,9 +333,11 @@ def scrape_trulia():
 
                 print("Saved")
 
+
             except Exception as e:
 
-                print("Error:", e)
+                print("Error:",e)
+
 
             time.sleep(random.uniform(3,5))
 
@@ -337,14 +346,15 @@ def scrape_trulia():
 
     print("\n==============================")
     print("SCRAPING FINISHED")
-    print("Total properties:", len(all_data))
+    print("Total properties:",len(all_data))
     print("==============================")
 
     df = pd.DataFrame(all_data)
 
     df.to_csv(OUTPUT_FILE,index=False)
 
-    print("CSV saved:", OUTPUT_FILE)
+    print("CSV saved:",OUTPUT_FILE)
+
 
 
 # =====================================
@@ -353,4 +363,4 @@ def scrape_trulia():
 
 if __name__ == "__main__":
 
-    scrape_trulia()
+    scrape()
