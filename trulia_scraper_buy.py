@@ -22,7 +22,7 @@ cities = [
 
 BASE_URL = "https://www.trulia.com/for_sale/{}/fsbo_lt/"
 
-OUTPUT_FILE = "trulia_fsbo_data.csv"
+OUTPUT_FILE = "trulia_buy_data.csv"
 
 MAX_PAGES = 1
 

@@ -22,7 +22,6 @@ cities = [
 BASE_URL = "https://www.trulia.com/for_rent/{}/3000p_price/"
 
 OUTPUT_FILE = "trulia_rent_data.csv"
-
 LINKS_FILE = "trulia_rent_links_master.csv"
 
 
@@ -40,7 +39,7 @@ def start_driver():
     driver = uc.Chrome(options=options, version_main=145)
 
     driver.execute_script(
-        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
     )
 
     return driver
@@ -73,9 +72,7 @@ def safe_find_multiple(driver, selectors):
     for selector in selectors:
 
         try:
-
             el = driver.find_element(By.CSS_SELECTOR, selector)
-
             txt = el.text.strip()
 
             if txt:
@@ -108,14 +105,14 @@ def nearby_section_detected(driver):
 
 
 # =====================================
-# COLLECT CARD LINKS ONLY
+# EXTRACT LINKS FROM CARDS ONLY
 # =====================================
 
-def collect_links(driver, city):
+def collect_card_links(driver, city):
 
     cards = driver.find_elements(
         By.XPATH,
-        "//a[contains(@href,'/home/') and .//img]"
+        "//article//a[contains(@href,'/home/')]"
     )
 
     links = []
@@ -158,7 +155,7 @@ def load_existing_links():
 
 
 # =====================================
-# SAVE LINKS
+# SAVE MASTER LINKS
 # =====================================
 
 def save_links_master(links):
@@ -204,13 +201,12 @@ def scrape():
 
         page = 1
 
-
         while True:
 
             print("\nReading page:",page)
 
             print("\nSCROLL MANUALLY until all cards load.")
-            input("Then press ENTER to extract links...")
+            input("Then press ENTER to extract card links...")
 
             if nearby_section_detected(driver):
 
@@ -218,9 +214,9 @@ def scrape():
                 break
 
 
-            links = collect_links(driver, city)
+            links = collect_card_links(driver, city)
 
-            print("Card links detected:",len(links))
+            print("Cards detected:",len(links))
 
 
             for link in links:
@@ -228,7 +224,6 @@ def scrape():
                 if link not in visited_links:
 
                     visited_links.add(link)
-
                     new_links_global.add(link)
 
                     print("NEW:",link)
@@ -262,7 +257,7 @@ def scrape():
 
 
     # =====================================
-    # SCRAPE NEW LINKS
+    # OPEN PROPERTY PAGES
     # =====================================
 
     for link in new_links_global:
@@ -298,31 +293,23 @@ def scrape():
 
 
             address = safe_find_multiple(driver,[
-
                 "[data-testid='home-details-summary-headline']",
                 "h1"
-
             ])
 
 
             price = safe_find_multiple(driver,[
-
                 "[data-testid='home-details-summary-price']"
-
             ])
 
 
             phone = safe_find_multiple(driver,[
-
                 "[data-testid='owner-phone']"
-
             ])
 
 
             description = safe_find_multiple(driver,[
-
                 "[data-testid='seo-description-paragraph']"
-
             ])
 
 
@@ -331,7 +318,6 @@ def scrape():
             match = re.search(r"listed on (.*)",description)
 
             if match:
-
                 date_posted = match.group(1)
 
 
@@ -353,6 +339,7 @@ def scrape():
             all_data.append(row)
 
             print("Saved")
+
 
         except Exception as e:
 
