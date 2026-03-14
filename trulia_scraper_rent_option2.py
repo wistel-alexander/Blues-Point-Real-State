@@ -404,3 +404,22 @@ def scrape_trulia():
 if __name__ == "__main__":
 
     scrape_trulia()
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+     cities = [
+    "Stamford,CT",
+    "Norwalk,CT",
+    "Darien,CT",
+    "Wilton,CT",
+    "New_Canaan,CT"
+]
