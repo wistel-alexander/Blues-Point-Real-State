@@ -1,5 +1,7 @@
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import time
 import random
@@ -14,13 +16,10 @@ cities = [
     "New_Canaan,CT"
 ]
 
-
 BASE_URL = "https://www.trulia.com/for_rent/{}/3000p_price/"
 
 OUTPUT_FILE = "trulia_rent_data.csv"
 VISITED_FILE = "visited_links.csv"
-
-MAX_PAGES = 20
 
 
 def start_driver():
@@ -81,21 +80,13 @@ def captcha_detected(driver):
     return any(w in page for w in words)
 
 
-def nearby_section_detected(driver, city):
+def wait_for_listings(driver):
 
-    city_name = city.split(",")[0].replace("_", " ")
-
-    page = driver.page_source.lower()
-
-    pattern = f"apartments for rent near {city_name}".lower()
-
-    if pattern in page:
-
-        print("Reached NEAR CITY section -> stopping pagination")
-
-        return True
-
-    return False
+    WebDriverWait(driver, 15).until(
+        EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "a[data-testid='property-card-link']")
+        )
+    )
 
 
 def collect_links(driver, city):
@@ -117,12 +108,27 @@ def collect_links(driver, city):
 
             href = href.split("?")[0].lower()
 
-            # FILTRO: solo aceptar links de la ciudad actual
             if city_slug in href:
 
                 urls.append(href)
 
     return list(set(urls))
+
+
+def next_page_exists(driver):
+
+    try:
+
+        driver.find_element(
+            By.CSS_SELECTOR,
+            "button[aria-label='Next page']"
+        )
+
+        return True
+
+    except:
+
+        return False
 
 
 def scrape_property(driver, link, city):
@@ -131,7 +137,7 @@ def scrape_property(driver, link, city):
 
         driver.get(link)
 
-        time.sleep(random.uniform(6,10))
+        time.sleep(random.uniform(4,7))
 
         if captcha_detected(driver):
 
@@ -221,32 +227,24 @@ def scrape_property(driver, link, city):
 
         return data
 
-    except Exception as e:
-
-        print("Error:", e)
+    except:
 
         return None
 
 
 def scrape_trulia():
 
-    print("TRULIA SCRAPER STARTED")
-
     driver = start_driver()
 
     visited_links = load_visited_links()
 
-    print("Visited links loaded:", len(visited_links))
-
     for city in cities:
 
-        print("\n===================")
-        print("CITY:", city)
-        print("===================\n")
+        print("\nCITY:", city)
 
         page = 1
 
-        while page <= MAX_PAGES:
+        while True:
 
             if page == 1:
 
@@ -260,35 +258,22 @@ def scrape_trulia():
 
             driver.get(url)
 
-            time.sleep(random.uniform(6,10))
+            wait_for_listings(driver)
 
             if captcha_detected(driver):
 
                 input("Solve CAPTCHA then press ENTER")
 
-            input(
-                "\nScroll manually until all listings load.\n"
-                "Then press ENTER to continue..."
-            )
-
-            time.sleep(4)
-
             links = collect_links(driver, city)
 
-            print("Listings found:", len(links))
-
-            if len(links) == 0:
-
-                print("No listings found")
-
-                break
+            print("Listings:", len(links))
 
             for link in links:
 
                 if link in visited_links:
                     continue
 
-                print("New property:", link)
+                print("Property:", link)
 
                 data = scrape_property(driver, link, city)
 
@@ -302,9 +287,9 @@ def scrape_trulia():
 
                     print("Saved")
 
-                time.sleep(random.uniform(5,9))
+                time.sleep(random.uniform(3,6))
 
-            if nearby_section_detected(driver, city):
+            if not next_page_exists(driver):
 
                 print("Last page reached")
 
@@ -312,9 +297,9 @@ def scrape_trulia():
 
             page += 1
 
-    driver.quit()
+            time.sleep(random.uniform(5,8))
 
-    print("SCRAPING FINISHED")
+    driver.quit()
 
 
 if __name__ == "__main__":
