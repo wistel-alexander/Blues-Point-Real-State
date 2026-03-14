@@ -23,7 +23,7 @@ BASE_URL = "https://www.trulia.com/for_rent/{}/3000p_price/"
 OUTPUT_FILE = "trulia_rent_data.csv"
 VISITED_FILE = "visited_links.csv"
 
-MAX_PAGES = 20
+MAX_PAGES = 10
 
 
 # =====================================
@@ -101,6 +101,27 @@ def captcha_detected(driver):
 
 
 # =====================================
+# DETECT "NEAR CITY"
+# =====================================
+
+def nearby_section_detected(driver, city):
+
+    city_name = city.split(",")[0].replace("_", " ")
+
+    page = driver.page_source.lower()
+
+    pattern = f"apartments for rent near {city_name}".lower()
+
+    if pattern in page:
+
+        print("\nReached 'Near City' section -> stopping pagination")
+
+        return True
+
+    return False
+
+
+# =====================================
 # COLLECT LINKS
 # =====================================
 
@@ -165,7 +186,6 @@ def scrape_property(driver, link, city):
                 return None
 
         except:
-
             return None
 
 
@@ -173,23 +193,19 @@ def scrape_property(driver, link, city):
         address2 = ""
 
         try:
-
             address1 = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='home-details-summary-headline']"
             ).text
-
         except:
             pass
 
 
         try:
-
             address2 = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='home-details-summary-city-state']"
             ).text
-
         except:
             pass
 
@@ -200,12 +216,10 @@ def scrape_property(driver, link, city):
         price = ""
 
         try:
-
             price = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='on-market-price-details']"
             ).text
-
         except:
             pass
 
@@ -213,12 +227,10 @@ def scrape_property(driver, link, city):
         owner_name = ""
 
         try:
-
             owner_name = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='owner-name']"
             ).text
-
         except:
             pass
 
@@ -226,14 +238,12 @@ def scrape_property(driver, link, city):
         phone = ""
 
         try:
-
             phone = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='owner-phone']"
             ).text
 
             phone = phone.replace("Owner Phone:", "").strip()
-
         except:
             pass
 
@@ -306,6 +316,12 @@ def scrape_trulia():
             if captcha_detected(driver):
 
                 input("Solve CAPTCHA then press ENTER")
+
+
+            # DETECT END OF CITY RESULTS
+            if nearby_section_detected(driver, city):
+
+                break
 
 
             # SCROLL MANUAL
