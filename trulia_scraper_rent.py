@@ -233,7 +233,8 @@ def scrape_trulia():
     print("Visited links loaded:", len(visited_links))
 
     for city in cities:
-
+        
+        print("*********************************************")
         print("\n===================")
         print("CITY:", city)
         print("===================\n")
@@ -250,6 +251,7 @@ def scrape_trulia():
 
                 url = f"https://www.trulia.com/for_rent/{city}/3000p_price/{page}_p/"
 
+            print("--------------------------------------------")
             print("Opening:", url)
 
             driver.get(url)
@@ -261,7 +263,6 @@ def scrape_trulia():
                 input("Solve CAPTCHA then press ENTER")
 
             input(
-                "\n---------------------------------------\n"
                 "\nScroll manually until all listings load.\n"
                 "Then press ENTER to continue..."
             )
