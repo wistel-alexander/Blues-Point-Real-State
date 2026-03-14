@@ -6,10 +6,6 @@ import random
 import os
 
 
-# =====================================
-# CONFIG
-# =====================================
-
 cities = [
     "Stamford,CT",
     "Norwalk,CT",
@@ -18,15 +14,14 @@ cities = [
     "New_Canaan,CT"
 ]
 
+
 BASE_URL = "https://www.trulia.com/for_rent/{}/3000p_price/"
 
 OUTPUT_FILE = "trulia_rent_data.csv"
 VISITED_FILE = "visited_links.csv"
 
+MAX_PAGES = 20
 
-# =====================================
-# DRIVER
-# =====================================
 
 def start_driver():
 
@@ -39,10 +34,6 @@ def start_driver():
 
     return driver
 
-
-# =====================================
-# VISITED LINKS
-# =====================================
 
 def load_visited_links():
 
@@ -68,10 +59,6 @@ def save_visited_link(link):
         df.to_csv(VISITED_FILE, mode="a", header=False, index=False)
 
 
-# =====================================
-# SAVE PROPERTY
-# =====================================
-
 def save_property(data):
 
     df = pd.DataFrame([data])
@@ -85,10 +72,6 @@ def save_property(data):
         df.to_csv(OUTPUT_FILE, mode="a", header=False, index=False)
 
 
-# =====================================
-# CAPTCHA
-# =====================================
-
 def captcha_detected(driver):
 
     page = driver.page_source.lower()
@@ -98,76 +81,49 @@ def captcha_detected(driver):
     return any(w in page for w in words)
 
 
-# =====================================
-# DETECT NEARBY SECTION
-# =====================================
+def nearby_section_detected(driver, city):
 
-def nearby_detected(driver, city):
-
-    city_name = city.split(",")[0].lower()
+    city_name = city.split(",")[0].replace("_", " ")
 
     page = driver.page_source.lower()
 
-    text = f"apartments for rent near {city_name}"
+    pattern = f"apartments for rent near {city_name}".lower()
 
-    return text in page
+    if pattern in page:
 
+        print("Reached NEAR CITY section -> stopping pagination")
 
-# =====================================
-# SCROLL (improved)
-# =====================================
+        return True
 
-def auto_scroll(driver):
+    return False
 
-    for i in range(6):
-
-        driver.execute_script(
-            "window.scrollTo(0, document.body.scrollHeight);"
-        )
-
-        time.sleep(2)
-
-
-# =====================================
-# COLLECT LINKS
-# =====================================
 
 def collect_links(driver, city):
 
-    city_slug = city.split(",")[0].lower().replace("_", "-")
+    city_slug = city.lower().replace(",", "-").replace("_", "-")
 
-    cards = driver.find_elements(
-        By.XPATH,
-        "//a[contains(@href,'/home/')]"
+    links = driver.find_elements(
+        By.CSS_SELECTOR,
+        "a[data-testid='property-card-link']"
     )
 
-    links = []
+    urls = []
 
-    for card in cards:
+    for link in links:
 
-        try:
+        href = link.get_attribute("href")
 
-            link = card.get_attribute("href")
+        if href:
 
-            if not link:
-                continue
+            href = href.split("?")[0].lower()
 
-            link = link.split("?")[0]
+            # FILTRO: solo aceptar links de la ciudad actual
+            if city_slug in href:
 
-            if city_slug not in link.lower():
-                continue
+                urls.append(href)
 
-            links.append(link)
+    return list(set(urls))
 
-        except:
-            pass
-
-    return list(set(links))
-
-
-# =====================================
-# SCRAPE PROPERTY
-# =====================================
 
 def scrape_property(driver, link, city):
 
@@ -181,7 +137,6 @@ def scrape_property(driver, link, city):
 
             input("Solve CAPTCHA then press ENTER")
 
-
         try:
 
             owner_type = driver.find_element(
@@ -193,76 +148,52 @@ def scrape_property(driver, link, city):
                 return None
 
         except:
-
             return None
-
-
-        # ADDRESS
 
         address1 = ""
         address2 = ""
 
         try:
-
             address1 = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='home-details-summary-headline']"
             ).text
-
         except:
             pass
 
-
         try:
-
             address2 = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='home-details-summary-city-state']"
             ).text
-
         except:
             pass
 
-
         address = f"{address1}, {address2}"
-
-
-        # PRICE
 
         price = ""
 
         try:
-
             price = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='on-market-price-details']"
             ).text
-
         except:
             pass
-
-
-        # OWNER NAME
 
         owner_name = ""
 
         try:
-
             owner_name = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='owner-name']"
             ).text
-
         except:
             pass
-
-
-        # PHONE
 
         phone = ""
 
         try:
-
             phone = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='owner-phone']"
@@ -272,7 +203,6 @@ def scrape_property(driver, link, city):
 
         except:
             pass
-
 
         data = {
 
@@ -298,20 +228,15 @@ def scrape_property(driver, link, city):
         return None
 
 
-# =====================================
-# MAIN SCRAPER
-# =====================================
-
 def scrape_trulia():
 
-    print("\nTRULIA SCRAPER STARTED\n")
+    print("TRULIA SCRAPER STARTED")
 
     driver = start_driver()
 
     visited_links = load_visited_links()
 
     print("Visited links loaded:", len(visited_links))
-
 
     for city in cities:
 
@@ -321,7 +246,7 @@ def scrape_trulia():
 
         page = 1
 
-        while True:
+        while page <= MAX_PAGES:
 
             if page == 1:
 
@@ -331,46 +256,39 @@ def scrape_trulia():
 
                 url = f"https://www.trulia.com/for_rent/{city}/3000p_price/{page}_p/"
 
-
             print("Opening:", url)
 
             driver.get(url)
 
             time.sleep(random.uniform(6,10))
 
-
             if captcha_detected(driver):
 
                 input("Solve CAPTCHA then press ENTER")
 
+            input(
+                "\nScroll manually until all listings load.\n"
+                "Then press ENTER to continue..."
+            )
 
-            if nearby_detected(driver, city):
-
-                print("Nearby listings detected -> stopping city")
-
-                break
-
-
-            auto_scroll(driver)
+            time.sleep(4)
 
             links = collect_links(driver, city)
 
             print("Listings found:", len(links))
 
-
             if len(links) == 0:
 
-                break
+                print("No listings found")
 
+                break
 
             for link in links:
 
                 if link in visited_links:
-
                     continue
 
-
-                print("\nNew property:", link)
+                print("New property:", link)
 
                 data = scrape_property(driver, link, city)
 
@@ -378,48 +296,27 @@ def scrape_trulia():
 
                 save_visited_link(link)
 
-
                 if data:
 
                     save_property(data)
 
                     print("Saved")
 
-
                 time.sleep(random.uniform(5,9))
 
+            if nearby_section_detected(driver, city):
+
+                print("Last page reached")
+
+                break
 
             page += 1
 
-
     driver.quit()
 
-    print("\nSCRAPING FINISHED")
+    print("SCRAPING FINISHED")
 
-
-# =====================================
-# RUN
-# =====================================
 
 if __name__ == "__main__":
 
     scrape_trulia()
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-     cities = [
-    "Stamford,CT",
-    "Norwalk,CT",
-    "Darien,CT",
-    "Wilton,CT",
-    "New_Canaan,CT"
-]

@@ -11,11 +11,11 @@ import os
 # =====================================
 
 cities = [
-    "Stamford, CT",
-    "Norwalk, CT",
-    "Darien, CT",
-    "Wilton, CT",
-    "New_Canaan, CT"
+    "Stamford,CT",
+    "Norwalk,CT",
+    "Darien,CT",
+    "Wilton,CT",
+    "New_Canaan,CT"
 ]
 
 BASE_URL = "https://www.trulia.com/for_rent/{}/3000p_price/"
