@@ -1,16 +1,16 @@
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import time
 import random
+import os
 import re
+from datetime import datetime
 
 
-# =====================================
-# CONFIGURATION
-# =====================================
+# ================================
+# CONFIG
+# ================================
 
 cities = [
     "Stamford,CT",
@@ -23,322 +23,384 @@ cities = [
 BASE_URL = "https://www.trulia.com/for_sale/{}/fsbo_lt/"
 
 OUTPUT_FILE = "trulia_buy_data.csv"
+VISITED_FILE = "visited_links_buy.csv"
 
-MAX_PAGES = 1
+MAX_PAGES = 10
 
 
-# =====================================
-# START DRIVER
-# =====================================
+# ================================
+# DRIVER
+# ================================
 
 def start_driver():
 
-    print("\nStarting undetected Chrome driver...\n")
-
     options = uc.ChromeOptions()
 
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--start-maximized")
 
-    driver = uc.Chrome(
-        options=options,
-        version_main=145
-    )
-
-    driver.set_window_size(1400,900)
-
-    driver.execute_script(
-        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    )
+    driver = uc.Chrome(options=options, version_main=145)
 
     return driver
 
 
-# =====================================
-# CAPTCHA DETECTION
-# =====================================
+# ================================
+# VISITED LINKS
+# ================================
+
+def load_visited_links():
+
+    if os.path.exists(VISITED_FILE):
+
+        df = pd.read_csv(VISITED_FILE)
+
+        return set(df["URL"])
+
+    return set()
+
+
+def save_visited_link(link):
+
+    df = pd.DataFrame([{"URL": link}])
+
+    if not os.path.exists(VISITED_FILE):
+
+        df.to_csv(VISITED_FILE, index=False)
+
+    else:
+
+        df.to_csv(VISITED_FILE, mode="a", header=False, index=False)
+
+
+# ================================
+# SAVE PROPERTY
+# ================================
+
+def save_property(data):
+
+    df = pd.DataFrame([data])
+
+    if not os.path.exists(OUTPUT_FILE):
+
+        df.to_csv(OUTPUT_FILE, index=False)
+
+    else:
+
+        df.to_csv(OUTPUT_FILE, mode="a", header=False, index=False)
+
+
+# ================================
+# CAPTCHA
+# ================================
 
 def captcha_detected(driver):
 
     page = driver.page_source.lower()
 
-    words = [
-        "captcha",
-        "verify you are human",
-        "security check",
-        "robot"
+    triggers = ["captcha", "verify you are human", "security check"]
+
+    return any(t in page for t in triggers)
+
+
+# ================================
+# DETECT LAST PAGE
+# ================================
+
+def nearby_section_detected(driver):
+
+    page = driver.page_source.lower()
+
+    triggers = [
+        "homes for sale near",
+        "matching your filters just outside"
     ]
 
-    for w in words:
-        if w in page:
-            return True
-
-    return False
+    return any(t in page for t in triggers)
 
 
-# =====================================
-# SAFE FIND MULTIPLE SELECTORS
-# =====================================
+# ================================
+# COLLECT LINKS
+# ================================
 
-def safe_find_multiple(driver, selectors):
+def collect_links(driver):
 
-    for selector in selectors:
+    cards = driver.find_elements(
+        By.CSS_SELECTOR,
+        "[data-testid='property-card-link']"
+    )
+
+    urls = []
+
+    for card in cards:
 
         try:
 
-            element = driver.find_element(By.CSS_SELECTOR, selector)
+            link = card.get_attribute("href")
 
-            text = element.text.strip()
+            if link and "/home/" in link:
 
-            if text:
-                return text
+                link = link.split("?")[0]
+
+                urls.append(link)
 
         except:
             continue
 
+    return list(set(urls))
+
+
+# ================================
+# CLEAN PRICE
+# ================================
+
+def extract_price(price_text):
+
+    match = re.search(r"\$\d[\d,]*", price_text)
+
+    if match:
+        return match.group()
+
     return ""
 
 
-# =====================================
-# SCRAPER
-# =====================================
+# ================================
+# EXTRACT DATE
+# ================================
+
+def extract_date(text):
+
+    match = re.search(r'on (\w+ \d{1,2}, \d{4})', text)
+
+    if match:
+
+        raw_date = match.group(1)
+
+        date_obj = datetime.strptime(raw_date, "%b %d, %Y")
+
+        return date_obj.strftime("%m/%d/%Y")
+
+    return ""
+
+
+# ================================
+# SCRAPE PROPERTY
+# ================================
+
+def scrape_property(driver, link, city):
+
+    try:
+
+        driver.get(link)
+
+        time.sleep(random.uniform(5,9))
+
+        if captcha_detected(driver):
+
+            input("Solve CAPTCHA then press ENTER")
+
+
+        # ================================
+        # OWNER PHONE (MAIN CRITERIA)
+        # ================================
+
+        try:
+
+            phone_element = driver.find_element(
+                By.CSS_SELECTOR,
+                "[data-testid='owner-phone']"
+            )
+
+            phone = phone_element.text.replace("Owner Phone:", "").strip()
+
+        except:
+            print("No owner phone detected → skipping")
+            return None
+
+
+        # ================================
+        # ADDRESS
+        # ================================
+
+        address = ""
+
+        try:
+
+            address = driver.find_element(
+                By.CSS_SELECTOR,
+                "[data-testid='home-details-summary-headline']"
+            ).text
+
+        except:
+            pass
+
+
+        # ================================
+        # PRICE
+        # ================================
+
+        price = ""
+
+        try:
+
+            price_text = driver.find_element(
+                By.CSS_SELECTOR,
+                "[data-testid='home-details-summary-price']"
+            ).text
+
+            price = extract_price(price_text)
+
+        except:
+            pass
+
+
+        # ================================
+        # DATE POSTED
+        # ================================
+
+        date_posted = ""
+
+        try:
+
+            seo_text = driver.find_element(
+                By.CSS_SELECTOR,
+                "[data-testid='seo-description-paragraph']"
+            ).text
+
+            date_posted = extract_date(seo_text)
+
+        except:
+            pass
+
+
+        scraping_date = datetime.now().strftime("%m/%d/%Y")
+
+
+        data = {
+
+            "Scraping Date": scraping_date,
+            "Address": address,
+            "City": city.split(",")[0],
+            "URL Link": link,
+            "Phone Number": phone,
+            "Email": "",
+            "Name of Person": "",
+            "Source": "Trulia",
+            "Date Posted": date_posted,
+            "Rental / Buy": "Buy",
+            "Price Point": price
+
+        }
+
+        return data
+
+    except Exception as e:
+
+        print("Error scraping:", e)
+
+        return None
+
+
+# ================================
+# MAIN SCRAPER
+# ================================
 
 def scrape_trulia():
 
-    print("\n==============================")
-    print("TRULIA SCRAPER STARTED")
-    print("==============================")
+    print("TRULIA BUY SCRAPER STARTED")
 
     driver = start_driver()
 
-    wait = WebDriverWait(driver,20)
+    visited_links = load_visited_links()
 
-    all_data = []
-
-    visited_links = set()
-
-    property_counter = 0
+    print("Visited links loaded:", len(visited_links))
 
 
     for city in cities:
 
-        print("\n==============================")
+        print("\n===================================")
         print("CITY:", city)
-        print("==============================")
+        print("===================================")
 
+        page = 1
 
-        for page in range(1, MAX_PAGES+1):
+        while page <= MAX_PAGES:
 
             if page == 1:
-                url = BASE_URL.format(city)
-            else:
-                url = BASE_URL.format(city) + f"{page}_p/"
 
-            print("\nOpening page:", page)
-            print(url)
+                url = BASE_URL.format(city)
+
+            else:
+
+                url = f"https://www.trulia.com/for_sale/{city}/fsbo_lt/{page}_p/"
+
+            print("Opening:", url)
 
             driver.get(url)
 
-            time.sleep(random.uniform(4,7))
+            time.sleep(random.uniform(6,10))
 
-
-            # CAPTCHA CHECK
 
             if captcha_detected(driver):
 
-                print("\n⚠ CAPTCHA DETECTED")
-                print("Solve it manually in the browser.")
-                print("Press ENTER here when finished.\n")
-
-                input()
+                input("Solve CAPTCHA then press ENTER")
 
 
-            try:
-
-                wait.until(
-                    EC.presence_of_element_located(
-                        (By.CSS_SELECTOR,"[data-testid='home-card-sale']")
-                    )
-                )
-
-                print("Listings loaded")
-
-            except:
-
-                print("No listings detected")
-                continue
-
-
-            listings = driver.find_elements(
-                By.CSS_SELECTOR,
-                "[data-testid='home-card-sale']"
+            input(
+                "\nScroll manually until listings load\n"
+                "Press ENTER when ready..."
             )
 
-            print("Listings found:", len(listings))
 
-            property_links = []
+            links = collect_links(driver)
 
+            print("Listings found:", len(links))
 
-            for i,listing in enumerate(listings):
 
-                try:
+            if len(links) == 0:
+                break
 
-                    link = listing.find_element(
-                        By.CSS_SELECTOR,
-                        "a[data-testid='property-card-link']"
-                    ).get_attribute("href")
 
+            for link in links:
 
-                    if link not in visited_links:
+                if link in visited_links:
+                    continue
 
-                        visited_links.add(link)
+                print("Scraping:", link)
 
-                        property_links.append(link)
+                data = scrape_property(driver, link, city)
 
-                        print("Collected NEW link:", link)
+                visited_links.add(link)
 
-                    else:
+                save_visited_link(link)
 
-                        print("Duplicate skipped")
+                if data:
 
-                except:
+                    save_property(data)
 
-                    print("Link extraction failed")
+                    print("PROPERTY SAVED")
 
+                time.sleep(random.uniform(4,8))
 
-            print("Total NEW links:", len(property_links))
 
+            if nearby_section_detected(driver):
 
-            # =====================================
-            # VISIT PROPERTY
-            # =====================================
+                print("LAST PAGE DETECTED")
 
-            for link in property_links:
+                break
 
-                property_counter += 1
 
-                print("\n--------------------------------")
-                print("PROPERTY:", property_counter)
-                print(link)
-                print("--------------------------------")
-
-
-                try:
-
-                    driver.get(link)
-
-                    time.sleep(random.uniform(5,8))
-
-
-                    if captcha_detected(driver):
-
-                        print("\n⚠ CAPTCHA detected on property page")
-                        print("Solve it manually then press ENTER")
-
-                        input()
-
-
-                    # ADDRESS
-                    address = safe_find_multiple(driver,[
-
-                        "[data-testid='home-details-summary-headline']",
-                        "[data-testid='property-address']",
-                        "h1"
-
-                    ])
-
-                    print("Address:", address)
-
-
-                    # PRICE
-                    price = safe_find_multiple(driver,[
-
-                        "[data-testid='home-details-summary-price']",
-                        "[data-testid='property-price']"
-
-                    ])
-
-                    print("Price:", price)
-
-
-                    # PHONE
-                    phone = safe_find_multiple(driver,[
-
-                        "[data-testid='owner-phone']"
-
-                    ])
-
-                    phone = phone.replace("Owner Phone:","").strip()
-
-                    print("Phone:", phone)
-
-
-                    # DESCRIPTION
-                    description = safe_find_multiple(driver,[
-
-                        "[data-testid='seo-description-paragraph']"
-
-                    ])
-
-
-                    date_posted = ""
-
-                    match = re.search(r"listed on (.*)", description)
-
-                    if match:
-                        date_posted = match.group(1)
-
-                    print("Date Posted:", date_posted)
-
-
-                    row = {
-
-                        "Address": address,
-                        "City": city.split(",")[0],
-                        "URL Link": link,
-                        "Phone Number": phone,
-                        "Email": "",
-                        "Name of Person": "",
-                        "Source": "Trulia",
-                        "Date Posted": date_posted,
-                        "Rental / Buy": "Buy",
-                        "Price Point": price
-
-                    }
-
-                    all_data.append(row)
-
-                    print("Data saved")
-
-
-                except Exception as e:
-
-                    print("Error scraping property:", e)
-
-
-                time.sleep(random.uniform(3,5))
+            page += 1
 
 
     driver.quit()
 
-
-    print("\n==============================")
-    print("SCRAPING FINISHED")
-    print("Total properties:", len(all_data))
-    print("==============================")
+    print("\nSCRAPING FINISHED")
 
 
-    df = pd.DataFrame(all_data)
-
-    df.to_csv(OUTPUT_FILE,index=False)
-
-    print("CSV saved:", OUTPUT_FILE)
-
-
-# =====================================
-# RUN SCRIPT
-# =====================================
+# ================================
+# RUN
+# ================================
 
 if __name__ == "__main__":
 
