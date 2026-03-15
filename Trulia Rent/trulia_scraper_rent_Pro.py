@@ -6,6 +6,8 @@ import pandas as pd
 import time
 import random
 import os
+import re
+from datetime import datetime
 
 
 cities = [
@@ -21,15 +23,18 @@ BASE_URL = "https://www.trulia.com/for_rent/{}/3000p_price/"
 OUTPUT_FILE = "trulia_rent_data.csv"
 VISITED_FILE = "visited_links.csv"
 
+MAX_PAGES = 20
+
 
 def start_driver():
 
     options = uc.ChromeOptions()
+
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--start-maximized")
 
     driver = uc.Chrome(options=options, version_main=145)
-
-    driver.maximize_window()
 
     return driver
 
@@ -80,13 +85,17 @@ def captcha_detected(driver):
     return any(w in page for w in words)
 
 
-def wait_for_listings(driver):
+def nearby_section_detected(driver, listings_count):
 
-    WebDriverWait(driver, 15).until(
-        EC.presence_of_element_located(
-            (By.CSS_SELECTOR, "a[data-testid='property-card-link']")
-        )
-    )
+    page = driver.page_source.lower()
+
+    if "apartments for rent near" in page and listings_count < 40:
+
+        print("LAST PAGE DETECTED")
+
+        return True
+
+    return False
 
 
 def collect_links(driver, city):
@@ -115,20 +124,29 @@ def collect_links(driver, city):
     return list(set(urls))
 
 
-def next_page_exists(driver):
+def extract_price(price_text):
 
-    try:
+    match = re.search(r"\$\d[\d,]*", price_text)
 
-        driver.find_element(
-            By.CSS_SELECTOR,
-            "button[aria-label='Next page']"
-        )
+    if match:
+        return match.group()
 
-        return True
+    return ""
 
-    except:
 
-        return False
+def extract_date(seo_text):
+
+    match = re.search(r'on (\w+ \d{1,2}, \d{4})', seo_text)
+
+    if match:
+
+        raw_date = match.group(1)
+
+        date_obj = datetime.strptime(raw_date, "%b %d, %Y")
+
+        return date_obj.strftime("%m/%d/%Y")
+
+    return ""
 
 
 def scrape_property(driver, link, city):
@@ -137,7 +155,7 @@ def scrape_property(driver, link, city):
 
         driver.get(link)
 
-        time.sleep(random.uniform(4,7))
+        time.sleep(random.uniform(5,8))
 
         if captcha_detected(driver):
 
@@ -180,26 +198,33 @@ def scrape_property(driver, link, city):
         price = ""
 
         try:
-            price = driver.find_element(
+
+            price_text = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='on-market-price-details']"
             ).text
+
+            price = extract_price(price_text)
+
         except:
             pass
 
         owner_name = ""
 
         try:
+
             owner_name = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='owner-name']"
             ).text
+
         except:
             pass
 
         phone = ""
 
         try:
+
             phone = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='owner-phone']"
@@ -210,8 +235,25 @@ def scrape_property(driver, link, city):
         except:
             pass
 
+        date_posted = ""
+
+        try:
+
+            seo_text = driver.find_element(
+                By.CSS_SELECTOR,
+                "[data-testid='seo-description-paragraph']"
+            ).text
+
+            date_posted = extract_date(seo_text)
+
+        except:
+            pass
+
+        scraping_date = datetime.now().strftime("%m/%d/%Y")
+
         data = {
 
+            "Scraping Date": scraping_date,
             "Address": address,
             "City": city.split(",")[0],
             "URL Link": link,
@@ -219,7 +261,7 @@ def scrape_property(driver, link, city):
             "Email": "",
             "Name of Person": owner_name,
             "Source": "Trulia",
-            "Date Posted": "",
+            "Date Posted": date_posted,
             "Rental / Buy": "Rent",
             "Price Point": price
 
@@ -227,24 +269,32 @@ def scrape_property(driver, link, city):
 
         return data
 
-    except:
+    except Exception as e:
+
+        print("Error:", e)
 
         return None
 
 
 def scrape_trulia():
 
+    print("TRULIA SCRAPER STARTED")
+
     driver = start_driver()
 
     visited_links = load_visited_links()
 
+    print("Visited links loaded:", len(visited_links))
+
     for city in cities:
 
-        print("\nCITY:", city)
+        print("===================================")
+        print("CITY:", city)
+        print("===================================")
 
         page = 1
 
-        while True:
+        while page <= MAX_PAGES:
 
             if page == 1:
 
@@ -258,22 +308,30 @@ def scrape_trulia():
 
             driver.get(url)
 
-            wait_for_listings(driver)
+            time.sleep(random.uniform(5,8))
 
             if captcha_detected(driver):
 
                 input("Solve CAPTCHA then press ENTER")
 
+            input(
+                "\nScroll manually until listings load\n"
+                "Press ENTER when ready..."
+            )
+
             links = collect_links(driver, city)
 
-            print("Listings:", len(links))
+            print("Listings found:", len(links))
+
+            if len(links) == 0:
+                break
 
             for link in links:
 
                 if link in visited_links:
                     continue
 
-                print("Property:", link)
+                print("Scraping:", link)
 
                 data = scrape_property(driver, link, city)
 
@@ -287,19 +345,16 @@ def scrape_trulia():
 
                     print("Saved")
 
-                time.sleep(random.uniform(3,6))
+                time.sleep(random.uniform(4,7))
 
-            if not next_page_exists(driver):
-
-                print("Last page reached")
-
+            if nearby_section_detected(driver, len(links)):
                 break
 
             page += 1
 
-            time.sleep(random.uniform(5,8))
-
     driver.quit()
+
+    print("SCRAPING FINISHED")
 
 
 if __name__ == "__main__":
