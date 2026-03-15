@@ -4,6 +4,8 @@ import pandas as pd
 import time
 import random
 import os
+import re
+from datetime import datetime
 
 
 cities = [
@@ -168,12 +170,19 @@ def scrape_property(driver, link, city):
         price = ""
 
         try:
-            price = driver.find_element(
+            price_text = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='on-market-price-details']"
             ).text
+
+            price_match = re.search(r"\$\d[\d,]*", price_text)
+
+            if price_match:
+                price = price_match.group()
+
         except:
             pass
+
 
         owner_name = ""
 
@@ -184,6 +193,7 @@ def scrape_property(driver, link, city):
             ).text
         except:
             pass
+
 
         phone = ""
 
@@ -198,6 +208,32 @@ def scrape_property(driver, link, city):
         except:
             pass
 
+
+        # -------- DATE EXTRACTION --------
+
+        date_posted = ""
+
+        try:
+
+            seo_text = driver.find_element(
+                By.CSS_SELECTOR,
+                "[data-testid='seo-description-paragraph']"
+            ).text
+
+            match = re.search(r'on (\w+ \d{1,2}, \d{4})', seo_text)
+
+            if match:
+
+                raw_date = match.group(1)
+
+                date_obj = datetime.strptime(raw_date, "%b %d, %Y")
+
+                date_posted = date_obj.strftime("%m/%d/%Y")
+
+        except:
+            pass
+
+
         data = {
 
             "Address": address,
@@ -207,7 +243,7 @@ def scrape_property(driver, link, city):
             "Email": "",
             "Name of Person": owner_name,
             "Source": "Trulia",
-            "Date Posted": "",
+            "Date Posted": date_posted,
             "Rental / Buy": "Rent",
             "Price Point": price
 
