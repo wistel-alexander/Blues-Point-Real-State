@@ -27,13 +27,48 @@ MAX_PAGES = 20
 def start_driver():
 
     options = uc.ChromeOptions()
+
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--start-maximized")
 
     driver = uc.Chrome(options=options, version_main=145)
 
-    driver.maximize_window()
-
     return driver
+
+
+# ---------------- CAPTCHA DETECTION ---------------- #
+
+def captcha_present(driver):
+
+    page = driver.page_source.lower()
+
+    triggers = [
+        "px-captcha",
+        "press & hold",
+        "verify you are human",
+        "confirme que es humano",
+        "amzn-captcha"
+    ]
+
+    return any(t in page for t in triggers)
+
+
+def wait_for_captcha(driver):
+
+    if captcha_present(driver):
+
+        print("\nCAPTCHA DETECTED - solve manually")
+
+        while captcha_present(driver):
+
+            print("Waiting for captcha to be solved...")
+            time.sleep(5)
+
+        print("Captcha solved\n")
+
+
+# --------------------------------------------------- #
 
 
 def load_visited_links():
@@ -73,22 +108,13 @@ def save_property(data):
         df.to_csv(OUTPUT_FILE, mode="a", header=False, index=False)
 
 
-def captcha_detected(driver):
-
-    page = driver.page_source.lower()
-
-    words = ["captcha", "verify you are human", "security check"]
-
-    return any(w in page for w in words)
-
-
 def nearby_section_detected(driver, listings_count):
 
     page = driver.page_source.lower()
 
     if "apartments for rent near" in page and listings_count < 40:
 
-        print("LAST PAGE DETECTED -> stopping pagination")
+        print("LAST PAGE DETECTED")
 
         return True
 
@@ -121,17 +147,40 @@ def collect_links(driver, city):
     return list(set(urls))
 
 
+def extract_price(price_text):
+
+    match = re.search(r"\$\d[\d,]*", price_text)
+
+    if match:
+        return match.group()
+
+    return ""
+
+
+def extract_date(seo_text):
+
+    match = re.search(r'on (\w+ \d{1,2}, \d{4})', seo_text)
+
+    if match:
+
+        raw_date = match.group(1)
+
+        date_obj = datetime.strptime(raw_date, "%b %d, %Y")
+
+        return date_obj.strftime("%m/%d/%Y")
+
+    return ""
+
+
 def scrape_property(driver, link, city):
 
     try:
 
         driver.get(link)
 
-        time.sleep(random.uniform(6,10))
+        time.sleep(random.uniform(5,8))
 
-        if captcha_detected(driver):
-
-            input("Solve CAPTCHA then press ENTER")
+        wait_for_captcha(driver)
 
         try:
 
@@ -170,34 +219,33 @@ def scrape_property(driver, link, city):
         price = ""
 
         try:
+
             price_text = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='on-market-price-details']"
             ).text
 
-            price_match = re.search(r"\$\d[\d,]*", price_text)
-
-            if price_match:
-                price = price_match.group()
+            price = extract_price(price_text)
 
         except:
             pass
-
 
         owner_name = ""
 
         try:
+
             owner_name = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='owner-name']"
             ).text
+
         except:
             pass
-
 
         phone = ""
 
         try:
+
             phone = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='owner-phone']"
@@ -208,9 +256,6 @@ def scrape_property(driver, link, city):
         except:
             pass
 
-
-        # -------- DATE EXTRACTION --------
-
         date_posted = ""
 
         try:
@@ -220,22 +265,16 @@ def scrape_property(driver, link, city):
                 "[data-testid='seo-description-paragraph']"
             ).text
 
-            match = re.search(r'on (\w+ \d{1,2}, \d{4})', seo_text)
-
-            if match:
-
-                raw_date = match.group(1)
-
-                date_obj = datetime.strptime(raw_date, "%b %d, %Y")
-
-                date_posted = date_obj.strftime("%m/%d/%Y")
+            date_posted = extract_date(seo_text)
 
         except:
             pass
 
+        scraping_date = datetime.now().strftime("%m/%d/%Y")
 
         data = {
 
+            "Scraping Date": scraping_date,
             "Address": address,
             "City": city.split(",")[0],
             "URL Link": link,
@@ -269,11 +308,10 @@ def scrape_trulia():
     print("Visited links loaded:", len(visited_links))
 
     for city in cities:
-        
-        print("*********************************************")
-        print("\n===================")
+
+        print("===================================")
         print("CITY:", city)
-        print("===================\n")
+        print("===================================")
 
         page = 1
 
@@ -287,23 +325,18 @@ def scrape_trulia():
 
                 url = f"https://www.trulia.com/for_rent/{city}/3000p_price/{page}_p/"
 
-            print("--------------------------------------------")
             print("Opening:", url)
 
             driver.get(url)
 
-            time.sleep(random.uniform(6,10))
+            time.sleep(random.uniform(5,8))
 
-            if captcha_detected(driver):
-
-                input("Solve CAPTCHA then press ENTER")
+            wait_for_captcha(driver)
 
             input(
-                "\nScroll manually until all listings load.\n"
-                "Then press ENTER to continue..."
+                "\nScroll manually until listings load\n"
+                "Press ENTER when ready..."
             )
-
-            time.sleep(4)
 
             links = collect_links(driver, city)
 
@@ -317,7 +350,7 @@ def scrape_trulia():
                 if link in visited_links:
                     continue
 
-                print("New property:", link)
+                print("Scraping:", link)
 
                 data = scrape_property(driver, link, city)
 
@@ -331,7 +364,7 @@ def scrape_trulia():
 
                     print("Saved")
 
-                time.sleep(random.uniform(5,9))
+                time.sleep(random.uniform(4,7))
 
             if nearby_section_detected(driver, len(links)):
                 break
