@@ -9,29 +9,24 @@ from datetime import datetime
 
 
 cities = [
-    "Stamford",
-    "Norwalk",
-    "Darien",
-    "Wilton",
-    "New_Canaan"
+    "Stamford,CT",
+    "Norwalk,CT",
+    "Darien,CT",
+    "Wilton,CT",
+    "New_Canaan,CT"
 ]
 
-BASE_URL = "https://www.trulia.com/CT/{}/"
+BASE_URL = "https://www.trulia.com/for_sale/{}/"
 
 OUTPUT_FILE = "trulia_buy_data.csv"
 VISITED_FILE = "visited_links_buy.csv"
 
-MAX_PAGES = 10
+MAX_PAGES = 20
 
-
-# ================================
-# DRIVER
-# ================================
 
 def start_driver():
 
     options = uc.ChromeOptions()
-
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--disable-infobars")
     options.add_argument("--start-maximized")
@@ -41,22 +36,29 @@ def start_driver():
     return driver
 
 
-# ================================
-# CAPTCHA DETECTION
-# ================================
+def captcha_present(driver):
 
-def captcha_detected(driver):
-
-    page = driver.page_source.lower()
-
-    words = ["captcha", "verify you are human", "security check"]
-
-    return any(w in page for w in words)
+    try:
+        driver.find_element(By.CLASS_NAME, "px-captcha-container")
+        return True
+    except:
+        return False
 
 
-# ================================
-# VISITED LINKS
-# ================================
+def wait_for_captcha(driver):
+
+    if captcha_present(driver):
+
+        print("\nCAPTCHA DETECTED")
+        print("Solve the 'Press & Hold' captcha...")
+
+        while captcha_present(driver):
+
+            print("Waiting for captcha to be solved...")
+            time.sleep(5)
+
+        print("Captcha solved\n")
+
 
 def load_visited_links():
 
@@ -82,10 +84,6 @@ def save_visited_link(link):
         df.to_csv(VISITED_FILE, mode="a", header=False, index=False)
 
 
-# ================================
-# SAVE PROPERTY
-# ================================
-
 def save_property(data):
 
     df = pd.DataFrame([data])
@@ -99,54 +97,31 @@ def save_property(data):
         df.to_csv(OUTPUT_FILE, mode="a", header=False, index=False)
 
 
-# ================================
-# COLLECT LINKS
-# ================================
+def collect_links(driver, city):
 
-def collect_links(driver):
+    city_slug = city.lower().replace(",", "-")
 
-    cards = driver.find_elements(
+    links = driver.find_elements(
         By.CSS_SELECTOR,
         "a[data-testid='property-card-link']"
     )
 
     urls = []
 
-    for card in cards:
+    for link in links:
 
-        try:
+        href = link.get_attribute("href")
 
-            link = card.get_attribute("href")
+        if href:
 
-            if link and "/home/" in link:
+            href = href.split("?")[0].lower()
 
-                link = link.split("?")[0]
+            if city_slug in href:
 
-                urls.append(link)
+                urls.append(href)
 
-        except:
-            continue
+    return list(dict.fromkeys(urls))
 
-    return list(set(urls))
-
-
-# ================================
-# PHONE EXTRACT
-# ================================
-
-def extract_phone(text):
-
-    match = re.search(r"\(\d{3}\)\s*\d{3}-\d{4}", text)
-
-    if match:
-        return match.group()
-
-    return ""
-
-
-# ================================
-# PRICE EXTRACT
-# ================================
 
 def extract_price(text):
 
@@ -157,10 +132,6 @@ def extract_price(text):
 
     return ""
 
-
-# ================================
-# DATE EXTRACT
-# ================================
 
 def extract_date(text):
 
@@ -177,75 +148,71 @@ def extract_date(text):
     return ""
 
 
-# ================================
-# SCRAPE PROPERTY
-# ================================
-
 def scrape_property(driver, link, city):
 
     try:
 
         driver.get(link)
 
-        time.sleep(random.uniform(6,10))
+        time.sleep(random.uniform(5,8))
 
-        if captcha_detected(driver):
-
-            input("Solve CAPTCHA then press ENTER")
-
-        # OWNER PHONE
+        wait_for_captcha(driver)
 
         try:
 
-            phone_element = driver.find_element(
+            phone = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='owner-phone']"
-            )
+            ).text
 
-            phone = extract_phone(phone_element.text)
-
-            if phone == "":
-                return None
+            phone = phone.replace("Owner Phone:", "").strip()
 
         except:
             return None
 
-        # ADDRESS
 
-        address = ""
+        address1 = ""
+        address2 = ""
 
         try:
 
-            street = driver.find_element(
+            address1 = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='home-details-summary-headline']"
             ).text
 
-            city_state = driver.find_element(
+        except:
+            pass
+
+
+        try:
+
+            address2 = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='home-details-summary-city-state']"
             ).text
 
-            address = f"{street}, {city_state}"
-
         except:
             pass
 
-        # PRICE
+
+        address = f"{address1}, {address2}"
+
 
         price = ""
 
         try:
 
-            price = driver.find_element(
+            price_text = driver.find_element(
                 By.CSS_SELECTOR,
                 "[data-testid='on-market-price-details']"
             ).text
 
+            price = extract_price(price_text)
+
         except:
             pass
 
-        # DATE POSTED
 
         date_posted = ""
 
@@ -261,13 +228,15 @@ def scrape_property(driver, link, city):
         except:
             pass
 
+
         scraping_date = datetime.now().strftime("%m/%d/%Y")
+
 
         data = {
 
             "Scraping Date": scraping_date,
             "Address": address,
-            "City": city,
+            "City": city.split(",")[0],
             "URL Link": link,
             "Phone Number": phone,
             "Email": "",
@@ -281,16 +250,13 @@ def scrape_property(driver, link, city):
 
         return data
 
+
     except Exception as e:
 
-        print("Error scraping:", e)
+        print("Error:", e)
 
         return None
 
-
-# ================================
-# MAIN SCRAPER
-# ================================
 
 def scrape_trulia():
 
@@ -302,6 +268,7 @@ def scrape_trulia():
 
     print("Visited links loaded:", len(visited_links))
 
+
     for city in cities:
 
         print("\n===================================")
@@ -310,37 +277,40 @@ def scrape_trulia():
 
         page = 1
 
+
         while page <= MAX_PAGES:
 
             if page == 1:
-
                 url = BASE_URL.format(city)
-
             else:
+                url = f"https://www.trulia.com/for_sale/{city}/{page}_p/"
 
-                url = f"https://www.trulia.com/CT/{city}/{page}_p/"
 
-            print("Opening:", url)
+            print("\nOpening:", url)
 
             driver.get(url)
 
-            time.sleep(random.uniform(7,11))
+            time.sleep(random.uniform(5,8))
 
-            if captcha_detected(driver):
+            wait_for_captcha(driver)
 
-                input("Solve CAPTCHA then press ENTER")
 
             input(
                 "\nScroll manually until listings load\n"
                 "Press ENTER when ready..."
             )
 
-            links = collect_links(driver)
+
+            links = collect_links(driver, city)
 
             print("Listings found:", len(links))
 
+
             if len(links) == 0:
+
+                print("No listings found — stopping city.")
                 break
+
 
             for link in links:
 
@@ -359,11 +329,13 @@ def scrape_trulia():
 
                     save_property(data)
 
-                    print("PROPERTY SAVED")
+                    print("Saved")
 
-                time.sleep(random.uniform(6,10))
+                time.sleep(random.uniform(4,7))
+
 
             page += 1
+
 
     driver.quit()
 
