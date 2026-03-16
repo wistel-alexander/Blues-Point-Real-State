@@ -13,8 +13,14 @@ cities = [
     "Norwalk,CT",
     "Darien,CT",
     "Wilton,CT",
-    "New_Canaan,CT"
+    "New Canaan,CT"
 ]
+
+
+SPECIAL_CITY_URLS = {
+    "New Canaan,CT": "https://www.trulia.com/CT/New_Canaan/"
+}
+
 
 BASE_URL = "https://www.trulia.com/for_sale/{}/"
 
@@ -36,21 +42,28 @@ def start_driver():
     return driver
 
 
+# ---------------- CAPTCHA DETECTION ---------------- #
+
 def captcha_present(driver):
 
-    try:
-        driver.find_element(By.CLASS_NAME, "px-captcha-container")
-        return True
-    except:
-        return False
+    page = driver.page_source.lower()
+
+    triggers = [
+        "px-captcha",
+        "press & hold",
+        "verify you are human",
+        "confirme que es humano",
+        "amzn-captcha"
+    ]
+
+    return any(t in page for t in triggers)
 
 
 def wait_for_captcha(driver):
 
     if captcha_present(driver):
 
-        print("\nCAPTCHA DETECTED")
-        print("Solve the 'Press & Hold' captcha...")
+        print("\nCAPTCHA DETECTED - solve manually")
 
         while captcha_present(driver):
 
@@ -58,6 +71,9 @@ def wait_for_captcha(driver):
             time.sleep(5)
 
         print("Captcha solved\n")
+
+
+# --------------------------------------------------- #
 
 
 def load_visited_links():
@@ -99,7 +115,7 @@ def save_property(data):
 
 def collect_links(driver, city):
 
-    city_slug = city.lower().replace(",", "-")
+    city_slug = city.lower().replace(" ", "-").replace(",", "-")
 
     links = driver.find_elements(
         By.CSS_SELECTOR,
@@ -116,11 +132,27 @@ def collect_links(driver, city):
 
             href = href.split("?")[0].lower()
 
-            if city_slug in href:
+            if city_slug.split("-")[0] in href:
 
                 urls.append(href)
 
     return list(dict.fromkeys(urls))
+
+
+def has_next_page(driver):
+
+    try:
+
+        driver.find_element(
+            By.CSS_SELECTOR,
+            "[data-testid='pagination-next-page']"
+        )
+
+        return True
+
+    except:
+
+        return False
 
 
 def extract_price(text):
@@ -168,6 +200,7 @@ def scrape_property(driver, link, city):
             phone = phone.replace("Owner Phone:", "").strip()
 
         except:
+
             return None
 
 
@@ -258,6 +291,25 @@ def scrape_property(driver, link, city):
         return None
 
 
+def build_city_url(city, page):
+
+    if city in SPECIAL_CITY_URLS:
+
+        base = SPECIAL_CITY_URLS[city]
+
+        if page == 1:
+            return base
+        else:
+            return base + f"{page}_p/"
+
+    else:
+
+        if page == 1:
+            return BASE_URL.format(city)
+        else:
+            return f"https://www.trulia.com/for_sale/{city}/{page}_p/"
+
+
 def scrape_trulia():
 
     print("TRULIA BUY SCRAPER STARTED")
@@ -280,11 +332,7 @@ def scrape_trulia():
 
         while page <= MAX_PAGES:
 
-            if page == 1:
-                url = BASE_URL.format(city)
-            else:
-                url = f"https://www.trulia.com/for_sale/{city}/{page}_p/"
-
+            url = build_city_url(city, page)
 
             print("\nOpening:", url)
 
@@ -312,6 +360,9 @@ def scrape_trulia():
                 break
 
 
+            next_page = has_next_page(driver)
+
+
             for link in links:
 
                 if link in visited_links:
@@ -332,6 +383,12 @@ def scrape_trulia():
                     print("Saved")
 
                 time.sleep(random.uniform(4,7))
+
+
+            if not next_page:
+
+                print("LAST PAGE OF CITY")
+                break
 
 
             page += 1

@@ -13,8 +13,14 @@ cities = [
     "Norwalk,CT",
     "Darien,CT",
     "Wilton,CT",
-    "New_Canaan,CT"
+    "New Canaan,CT"
 ]
+
+
+SPECIAL_CITY_URLS = {
+    "New Canaan,CT": "https://www.trulia.com/CT/New_Canaan/"
+}
+
 
 BASE_URL = "https://www.trulia.com/for_sale/{}/"
 
@@ -36,17 +42,38 @@ def start_driver():
     return driver
 
 
-def captcha_detected(driver):
+# ---------------- CAPTCHA DETECTION ---------------- #
+
+def captcha_present(driver):
 
     page = driver.page_source.lower()
 
     triggers = [
-        "captcha",
+        "px-captcha",
+        "press & hold",
         "verify you are human",
-        "security check"
+        "confirme que es humano",
+        "amzn-captcha"
     ]
 
     return any(t in page for t in triggers)
+
+
+def wait_for_captcha(driver):
+
+    if captcha_present(driver):
+
+        print("\nCAPTCHA DETECTED - solve manually")
+
+        while captcha_present(driver):
+
+            print("Waiting for captcha to be solved...")
+            time.sleep(5)
+
+        print("Captcha solved\n")
+
+
+# --------------------------------------------------- #
 
 
 def load_visited_links():
@@ -88,31 +115,45 @@ def save_property(data):
 
 def collect_links(driver, city):
 
-    city_slug = city.lower().replace(",", "-")
-
-    links = driver.find_elements(
+    cards = driver.find_elements(
         By.CSS_SELECTOR,
-        "a[data-testid='property-card-link']"
+        "[data-testid='home-card-sale']"
     )
 
     urls = []
 
-    for link in links:
+    for card in cards:
 
-        href = link.get_attribute("href")
+        try:
 
-        if href:
+            # Revisar si la tarjeta tiene tag "COMING SOON"
+            tags = card.text.lower()
 
-            href = href.split("?")[0].lower()
+            if "coming soon" in tags:
+                continue
 
-            if city_slug in href:
+
+            link_element = card.find_element(
+                By.CSS_SELECTOR,
+                "a[data-testid='property-card-link']"
+            )
+
+            href = link_element.get_attribute("href")
+
+            if href:
+
+                href = href.split("?")[0].lower()
 
                 urls.append(href)
+
+        except:
+            continue
+
 
     return list(dict.fromkeys(urls))
 
 
-def next_page_exists(driver):
+def has_next_page(driver):
 
     try:
 
@@ -124,8 +165,6 @@ def next_page_exists(driver):
         return True
 
     except:
-
-        print("LAST PAGE DETECTED")
 
         return False
 
@@ -163,10 +202,7 @@ def scrape_property(driver, link, city):
 
         time.sleep(random.uniform(5,8))
 
-        if captcha_detected(driver):
-
-            input("Solve CAPTCHA then press ENTER")
-
+        wait_for_captcha(driver)
 
         try:
 
@@ -259,10 +295,6 @@ def scrape_property(driver, link, city):
 
         }
 
-        driver.back()
-
-        time.sleep(random.uniform(4,6))
-
         return data
 
 
@@ -270,12 +302,26 @@ def scrape_property(driver, link, city):
 
         print("Error:", e)
 
-        try:
-            driver.back()
-        except:
-            pass
-
         return None
+
+
+def build_city_url(city, page):
+
+    if city in SPECIAL_CITY_URLS:
+
+        base = SPECIAL_CITY_URLS[city]
+
+        if page == 1:
+            return base
+        else:
+            return base + f"{page}_p/"
+
+    else:
+
+        if page == 1:
+            return BASE_URL.format(city)
+        else:
+            return f"https://www.trulia.com/for_sale/{city}/{page}_p/"
 
 
 def scrape_trulia():
@@ -298,27 +344,17 @@ def scrape_trulia():
         page = 1
 
 
-        while True:
+        while page <= MAX_PAGES:
 
-            if page == 1:
+            url = build_city_url(city, page)
 
-                url = BASE_URL.format(city)
-
-            else:
-
-                url = f"https://www.trulia.com/for_sale/{city}/{page}_p/"
-
-
-            print("Opening:", url)
+            print("\nOpening:", url)
 
             driver.get(url)
 
             time.sleep(random.uniform(5,8))
 
-
-            if captcha_detected(driver):
-
-                input("Solve CAPTCHA then press ENTER")
+            wait_for_captcha(driver)
 
 
             input(
@@ -334,7 +370,11 @@ def scrape_trulia():
 
             if len(links) == 0:
 
+                print("No listings found — stopping city.")
                 break
+
+
+            next_page = has_next_page(driver)
 
 
             for link in links:
@@ -359,8 +399,9 @@ def scrape_trulia():
                 time.sleep(random.uniform(4,7))
 
 
-            if not next_page_exists(driver):
+            if not next_page:
 
+                print("LAST PAGE OF CITY")
                 break
 
 
