@@ -117,24 +117,55 @@ def collect_links(driver, city):
 
     city_slug = city.lower().replace(" ", "-").replace(",", "-")
 
-    links = driver.find_elements(
+    cards = driver.find_elements(
         By.CSS_SELECTOR,
-        "a[data-testid='property-card-link']"
+        "[data-testid='home-card-sale']"
     )
 
     urls = []
 
-    for link in links:
+    for card in cards:
 
-        href = link.get_attribute("href")
+        try:
+            # -------------------------------
+            # 🔴 DETECTAR "COMING SOON"
+            # -------------------------------
+            tags = card.find_elements(
+                By.CSS_SELECTOR,
+                "[data-testid^='property-tag']"
+            )
 
-        if href:
+            is_coming_soon = False
 
-            href = href.split("?")[0].lower()
+            for tag in tags:
+                if "coming soon" in tag.text.lower():
+                    is_coming_soon = True
+                    break
 
-            if city_slug.split("-")[0] in href:
+            if is_coming_soon:
+                print("Skipping COMING SOON property")
+                continue
 
-                urls.append(href)
+            # -------------------------------
+            # 🔗 EXTRAER LINK
+            # -------------------------------
+            link_element = card.find_element(
+                By.CSS_SELECTOR,
+                "a[data-testid='property-card-link']"
+            )
+
+            href = link_element.get_attribute("href")
+
+            if href:
+
+                href = href.split("?")[0].lower()
+
+                if city_slug.split("-")[0] in href:
+                    urls.append(href)
+
+        except Exception as e:
+            print("Error processing card:", e)
+            continue
 
     return list(dict.fromkeys(urls))
 
