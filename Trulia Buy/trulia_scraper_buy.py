@@ -37,7 +37,7 @@ def start_driver():
     options.add_argument("--disable-infobars")
     options.add_argument("--start-maximized")
 
-    driver = uc.Chrome(options=options)
+    driver = uc.Chrome(options=options, version_main=146)
 
     return driver
 
