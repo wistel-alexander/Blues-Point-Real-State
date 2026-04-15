@@ -108,22 +108,27 @@ def save_property(data):
         df.to_csv(OUTPUT_FILE, mode="a", header=False, index=False)
 
 
-def nearby_section_detected(driver, listings_count):
+# ---------------- NUEVA FUNCIÓN ---------------- #
 
-    page = driver.page_source.lower()
+def has_next_page(driver):
 
-    if "apartments for rent near" in page and listings_count < 40:
-
-        print("LAST PAGE DETECTED")
-
+    try:
+        driver.find_element(
+            By.CSS_SELECTOR,
+            "[data-testid='pagination-next-page']"
+        )
         return True
+    except:
+        return False
 
-    return False
+
+# ----------------------------------------------- #
 
 
 def collect_links(driver, city):
 
-    city_slug = city.lower().replace(",", "-").replace("_", "-")
+    # 🔧 FIX IMPORTANTE
+    city_slug = city.lower().replace(" ", "-").replace(",", "-").replace("_", "-")
 
     links = driver.find_elements(
         By.CSS_SELECTOR,
@@ -141,7 +146,6 @@ def collect_links(driver, city):
             href = href.split("?")[0].lower()
 
             if city_slug in href:
-
                 urls.append(href)
 
     return list(set(urls))
@@ -318,11 +322,8 @@ def scrape_trulia():
         while page <= MAX_PAGES:
 
             if page == 1:
-
                 url = BASE_URL.format(city)
-
             else:
-
                 url = f"https://www.trulia.com/for_rent/{city}/3000p_price/{page}_p/"
 
             print("Opening:", url)
@@ -343,7 +344,10 @@ def scrape_trulia():
             print("Listings found:", len(links))
 
             if len(links) == 0:
+                print("No listings found — stopping city.")
                 break
+
+            next_page = has_next_page(driver)
 
             for link in links:
 
@@ -366,7 +370,9 @@ def scrape_trulia():
 
                 time.sleep(random.uniform(4,7))
 
-            if nearby_section_detected(driver, len(links)):
+            # 🔥 NUEVA LÓGICA CORRECTA
+            if not next_page:
+                print("LAST PAGE OF CITY")
                 break
 
             page += 1
@@ -379,3 +385,6 @@ def scrape_trulia():
 if __name__ == "__main__":
 
     scrape_trulia()
+    
+    
+  
